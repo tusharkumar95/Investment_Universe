@@ -30,8 +30,13 @@ def num(value):
 def clean(value):
     if isinstance(value, (np.integer, np.floating)):
         return value.item()
-    if pd.isna(value) if not isinstance(value, (list, dict, tuple)) else False:
-        return None
+    if isinstance(value, (list, dict, tuple)):
+        return value
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
     return value
 
 
@@ -40,12 +45,14 @@ def discover_market(region, exchanges):
     for exchange in exchanges:
         print(f"Discovering {region.upper()} / {exchange} ...")
         try:
+            # Yahoo's current screener schema does not expose quoteType as a
+            # valid EquityQuery field. The equity screener itself is used here,
+            # while official exchange listings remain the planned source of truth.
             query = yf.EquityQuery(
                 "and",
                 [
                     yf.EquityQuery("eq", ["region", region]),
                     yf.EquityQuery("eq", ["exchange", exchange]),
-                    yf.EquityQuery("eq", ["quoteType", "EQUITY"]),
                 ],
             )
             offset = 0
@@ -150,7 +157,6 @@ def score_rows(rows, rules):
         health_score = sum(health_parts) / len(health_parts) if health_parts else 0.5
 
         trend_score = percentile(metrics["change"], change)
-        quality_score = 1.0
         missing = sum(x is None for x in [mc, vol, pe, pb, roe, debt, change])
         quality_score = max(0.0, 1.0 - missing / 7.0)
 
@@ -214,8 +220,10 @@ def select_diversified(rows, target, rules):
                 continue
             selected.append(row)
             selected_ids.add(row.get("symbol"))
-            sector_counts[row.get("sector") or "Unknown"] = sector_counts.get(row.get("sector") or "Unknown", 0) + 1
-            industry_counts[row.get("industry") or "Unknown"] = industry_counts.get(row.get("industry") or "Unknown", 0) + 1
+            sector = row.get("sector") or "Unknown"
+            industry = row.get("industry") or "Unknown"
+            sector_counts[sector] = sector_counts.get(sector, 0) + 1
+            industry_counts[industry] = industry_counts.get(industry, 0) + 1
 
     selected_symbols = {r.get("symbol") for r in selected}
     for row, reason in rejected:
