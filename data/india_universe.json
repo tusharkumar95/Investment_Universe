@@ -1,0 +1,13 @@
+{
+  "market": "India",
+  "generated_at_utc": "2026-09-12T00:44:12.363157+00:00",
+  "source": "Yahoo Finance screener via yfinance; exchange/region filters",
+  "target_count": 150,
+  "discovered_count": 0,
+  "eligible_count": 0,
+  "selected_count": 0,
+  "stocks": [],
+  "rejected": [],
+  "sector_counts": {},
+  "industry_counts": {}
+}

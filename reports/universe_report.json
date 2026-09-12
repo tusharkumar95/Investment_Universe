@@ -1,0 +1,19 @@
+{
+  "generated_at_utc": "2026-09-12T00:44:12.363234+00:00",
+  "config_version": 1,
+  "markets": {
+    "Canada": {
+      "discovered": 0,
+      "eligible": 0,
+      "selected": 0,
+      "target": 150
+    },
+    "India": {
+      "discovered": 0,
+      "eligible": 0,
+      "selected": 0,
+      "target": 150
+    }
+  },
+  "status": "PARTIAL"
+}
