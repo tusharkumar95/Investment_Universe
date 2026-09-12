@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "target_count": {"Canada": 150, "India": 150},
+  "discovery": {
+    "Canada": {"region": "ca", "exchanges": ["TOR", "VAN", "NEO", "CNQ"]},
+    "India": {"region": "in", "exchanges": ["NSI", "BSE"]}
+  },
+  "eligibility": {
+    "min_market_cap": 250000000,
+    "min_avg_daily_volume_3m": 10000,
+    "min_price": 1.0,
+    "require_market_cap": true,
+    "require_volume": true,
+    "require_price": true
+  },
+  "ranking": {
+    "market_cap": 25,
+    "liquidity": 25,
+    "valuation": 15,
+    "financial_health": 15,
+    "ownership": 5,
+    "trend": 5,
+    "data_quality": 10
+  },
+  "diversification": {
+    "max_sector_share": 0.22,
+    "max_industry_share": 0.12,
+    "min_sectors": 8
+  },
+  "quality": {
+    "negative_pe_penalty": 8,
+    "extreme_pe_penalty": 4,
+    "high_debt_penalty": 5,
+    "negative_change_penalty": 3
+  }
+}
