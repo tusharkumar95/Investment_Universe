@@ -26,6 +26,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Syntax check
+        run: python -m py_compile scripts/build_universe.py
+
       - name: Build universe
         run: python scripts/build_universe.py
 
@@ -33,7 +36,6 @@ jobs:
         run: |
           python - <<'PY'
           import json
-          import sys
 
           checks = [
               ("Canada", "data/canada_universe.json", 150),
@@ -44,13 +46,17 @@ jobs:
               with open(path, encoding="utf-8") as f:
                   data = json.load(f)
               count = len(data.get("stocks", []))
-              print(f"{market}: {count} selected / target {target}")
+              discovered = data.get("discovered_count", 0)
+              eligible = data.get("eligible_count", 0)
+              print(f"{market}: discovered={discovered}, eligible={eligible}, selected={count}, target={target}")
               if count < target:
-                  print(f"WARNING: {market} did not reach target")
+                  raise SystemExit(f"FAIL: {market} selected only {count} stocks; target is {target}")
 
           with open("reports/universe_report.json", encoding="utf-8") as f:
               report = json.load(f)
           print("STATUS:", report.get("status"))
+          if report.get("status") != "PASS":
+              raise SystemExit("FAIL: universe report is not PASS")
           PY
 
       - name: Commit generated universe
