@@ -41,46 +41,52 @@ def clean(value):
 
 
 def discover_market(region, exchanges):
+    """Discover equities through Yahoo's screener, using its current query schema."""
     rows = {}
-    for exchange in exchanges:
-        print(f"Discovering {region.upper()} / {exchange} ...")
-        try:
-            # Yahoo's current screener schema does not expose quoteType as a
-            # valid EquityQuery field. The equity screener itself is used here,
-            # while official exchange listings remain the planned source of truth.
-            query = yf.EquityQuery(
-                "and",
-                [
-                    yf.EquityQuery("eq", ["region", region]),
-                    yf.EquityQuery("eq", ["exchange", exchange]),
-                ],
+    print(f"Discovering {region.upper()} / {', '.join(exchanges)} ...")
+
+    try:
+        # Current yfinance supports exchange through IS-IN. Using one query per
+        # market avoids the 400 errors produced by the previous per-exchange
+        # request pattern on the current Yahoo screener endpoint.
+        query = yf.EquityQuery(
+            "and",
+            [
+                yf.EquityQuery("eq", ["region", region]),
+                yf.EquityQuery("is-in", ["exchange", *exchanges]),
+            ],
+        )
+
+        offset = 0
+        while True:
+            result = yf.screen(
+                query,
+                offset=offset,
+                size=250,
+                sortField="intradaymarketcap",
+                sortAsc=False,
             )
-            offset = 0
-            while True:
-                result = yf.screen(
-                    query,
-                    offset=offset,
-                    size=250,
-                    sortField="marketcap",
-                    sortAsc=False,
-                )
-                quotes = result.get("quotes", []) if isinstance(result, dict) else []
-                if not quotes:
-                    break
-                for quote in quotes:
-                    symbol = quote.get("symbol")
-                    if symbol:
-                        quote["discovered_exchange"] = exchange
-                        rows[symbol] = quote
-                print(f"  +{len(quotes)} (total unique: {len(rows)})")
-                if len(quotes) < 250:
-                    break
-                offset += 250
-                if offset >= 10000:
-                    print("  Reached Yahoo screener safety limit of 10,000 rows.")
-                    break
-        except Exception as exc:
-            print(f"  WARNING: discovery failed for {exchange}: {exc}")
+            quotes = result.get("quotes", []) if isinstance(result, dict) else []
+            if not quotes:
+                break
+
+            for quote in quotes:
+                symbol = quote.get("symbol")
+                if symbol:
+                    rows[symbol] = quote
+
+            print(f"  +{len(quotes)} (total unique: {len(rows)})")
+            if len(quotes) < 250:
+                break
+
+            offset += 250
+            if offset >= 10000:
+                print("  Reached Yahoo screener safety limit of 10,000 rows.")
+                break
+
+    except Exception as exc:
+        print(f"  WARNING: discovery failed for {region.upper()}: {exc}")
+
     return list(rows.values())
 
 
@@ -273,7 +279,7 @@ def build_market(name, cfg, rules):
     output = {
         "market": name,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
-        "source": "Yahoo Finance screener via yfinance; exchange/region filters",
+        "source": "Yahoo Finance screener via yfinance; region + exchange filters",
         "target_count": rules["target_count"][name],
         "discovered_count": len(discovered),
         "eligible_count": len(eligible),
