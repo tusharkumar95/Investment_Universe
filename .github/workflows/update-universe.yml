@@ -1,0 +1,62 @@
+name: Build Investment Universe
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 10 * * 1-5"
+
+permissions:
+  contents: write
+
+jobs:
+  build-universe:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build universe
+        run: python scripts/build_universe.py
+
+      - name: Validate outputs
+        run: |
+          python - <<'PY'
+          import json
+          import sys
+
+          checks = [
+              ("Canada", "data/canada_universe.json", 150),
+              ("India", "data/india_universe.json", 150),
+          ]
+
+          for market, path, target in checks:
+              with open(path, encoding="utf-8") as f:
+                  data = json.load(f)
+              count = len(data.get("stocks", []))
+              print(f"{market}: {count} selected / target {target}")
+              if count < target:
+                  print(f"WARNING: {market} did not reach target")
+
+          with open("reports/universe_report.json", encoding="utf-8") as f:
+              report = json.load(f)
+          print("STATUS:", report.get("status"))
+          PY
+
+      - name: Commit generated universe
+        run: |
+          git config user.name "Investment Universe"
+          git config user.email "actions@github.com"
+          git add data/*.json reports/*.json
+          git diff --cached --quiet || git commit -m "Update investment universe"
+          git push
