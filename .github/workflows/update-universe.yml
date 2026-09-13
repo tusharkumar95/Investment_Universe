@@ -2,6 +2,10 @@ name: Build Investment Universe
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - "config/universe_rules.json"
+      - "scripts/build_universe.py"
   schedule:
     - cron: "30 10 * * 1-5"
 
