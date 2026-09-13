@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "target_count": {"Canada": 150, "India": 150},
+  "target_count": {"Canada": 100, "India": 100},
   "discovery": {
     "Canada": {"region": "ca", "exchanges": ["TOR", "VAN", "NEO", "CNQ"]},
     "India": {"region": "in", "exchanges": ["NSI", "BSE"]}
