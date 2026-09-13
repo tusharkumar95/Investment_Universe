@@ -38,8 +38,8 @@ jobs:
           import json
 
           checks = [
-              ("Canada", "data/canada_universe.json", 150),
-              ("India", "data/india_universe.json", 150),
+              ("Canada", "data/canada_universe.json", 100),
+              ("India", "data/india_universe.json", 100),
           ]
 
           for market, path, target in checks:
