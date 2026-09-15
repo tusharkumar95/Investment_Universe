@@ -43,8 +43,7 @@ jobs:
               data=json.load(open(path,encoding="utf-8")); stocks=data.get("stocks",[]); count=len(stocks)
               print(f"{market}: discovered={data.get('discovered_count',0)}, eligible={data.get('eligible_count',0)}, selected={count}, target={target}")
               if count<target: raise SystemExit(f"FAIL: {market} selected only {count} stocks")
-              industry_counts=data.get("industry_counts",{})
-              bad={k:v for k,v in industry_counts.items() if v>10}
+              bad={k:v for k,v in data.get("industry_counts",{}).items() if v>10}
               if bad: raise SystemExit(f"FAIL: {market} industry cap exceeded: {bad}")
               missing=[s.get('symbol') for s in stocks if not s.get('industry')]
               if missing: raise SystemExit(f"FAIL: {market} has stocks without industry classification: {missing[:10]}")
@@ -57,7 +56,7 @@ jobs:
           git config user.name "Investment Universe"
           git config user.email "actions@github.com"
           git add data/*.json reports/*.json
-          git diff --cached --quiet || exit 0
+          if git diff --cached --quiet; then exit 0; fi
           git commit -m "Update diversified investment universe"
           git pull --rebase origin main
           git push
