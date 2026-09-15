@@ -11,6 +11,9 @@ concurrency:
   group: investment-universe-smallcap
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
