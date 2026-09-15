@@ -1,0 +1,53 @@
+name: Update Small Cap Universe
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "scripts/build_smallcap_universe.py"
+      - ".github/workflows/update-smallcap.yml"
+
+concurrency:
+  group: investment-universe-smallcap
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Syntax check
+        run: python -m py_compile scripts/build_smallcap_universe.py
+
+      - name: Build small-cap universe
+        run: python scripts/build_smallcap_universe.py
+
+      - name: Validate 10 + 10
+        run: |
+          python - <<'PY'
+          import json
+          d=json.load(open('data/smallcap_universe.json'))
+          assert d['markets']['Canada']['selected_count'] == 10
+          assert d['markets']['India']['selected_count'] == 10
+          print('Small-cap validation PASS: 10 Canada + 10 India')
+          PY
+
+      - name: Commit data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/smallcap_universe.json
+          git diff --cached --quiet && exit 0
+          git commit -m "Update small-cap universe"
+          git pull --rebase origin main
+          git push
