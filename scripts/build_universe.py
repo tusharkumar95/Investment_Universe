@@ -40,6 +40,49 @@ def clean(value):
     return value
 
 
+def normalize_industry(value):
+    """Collapse Yahoo's closely related industry labels into investment categories."""
+    if not value:
+        return None
+    raw = str(value).strip()
+    key = raw.lower().replace("—", "-").replace("–", "-")
+    if "bank" in key:
+        return "Banks"
+    if "insurance" in key:
+        return "Insurance"
+    if "asset management" in key or "investment management" in key:
+        return "Asset Management"
+    if "capital markets" in key or "financial data" in key:
+        return "Capital Markets"
+    if "credit services" in key or "credit" in key and "service" in key:
+        return "Credit Services"
+    if "oil & gas" in key or "oil and gas" in key:
+        return "Oil & Gas"
+    if "semiconductor" in key:
+        return "Semiconductors"
+    if "software" in key:
+        return "Software"
+    if "pharmaceutical" in key or "drug manufacturer" in key:
+        return "Pharmaceuticals"
+    if "biotechnology" in key:
+        return "Biotechnology"
+    if "utilities" in key:
+        return "Utilities"
+    if "telecom" in key:
+        return "Telecommunications"
+    return raw
+
+
+def normalize_rows(rows):
+    for row in rows:
+        raw_industry = row.get("industry")
+        normalized = normalize_industry(raw_industry)
+        if normalized:
+            row["industry_raw"] = raw_industry
+            row["industry"] = normalized
+    return rows
+
+
 def discover_market(region, exchanges):
     """Discover equities through Yahoo's current screener schema."""
     rows = {}
@@ -54,13 +97,7 @@ def discover_market(region, exchanges):
         )
         offset = 0
         while True:
-            result = yf.screen(
-                query,
-                offset=offset,
-                size=250,
-                sortField="intradaymarketcap",
-                sortAsc=False,
-            )
+            result = yf.screen(query, offset=offset, size=250, sortField="intradaymarketcap", sortAsc=False)
             quotes = result.get("quotes", []) if isinstance(result, dict) else []
             if not quotes:
                 break
@@ -170,7 +207,7 @@ def score_rows(rows, rules):
 
 
 def select_diversified(rows, target, rules):
-    """Select the best stocks while hard-capping each industry at 10."""
+    """Select the best stocks while hard-capping each normalized industry at 10."""
     rows = sorted(rows, key=lambda r: r["universe_score"], reverse=True)
     d = rules["diversification"]
     max_sector = max(1, math.floor(target * d["max_sector_share"]))
@@ -200,8 +237,7 @@ def select_diversified(rows, target, rules):
 
     if len(selected) < target:
         raise RuntimeError(
-            f"Could only select {len(selected)} of {target} stocks while respecting "
-            f"industry <= {max_industry}, sector <= {max_sector}, and requiring industry data."
+            f"Could only select {len(selected)} of {target} stocks while respecting industry <= {max_industry}, sector <= {max_sector}, and requiring industry data."
         )
 
     selected_symbols = {r.get("symbol") for r in selected}
@@ -214,7 +250,7 @@ def select_diversified(rows, target, rules):
 def simplify(row):
     fields = [
         "symbol", "shortName", "exchange", "discovered_exchange", "quoteType",
-        "sector", "industry", "marketCap", "averageDailyVolume3Month",
+        "sector", "industry", "industry_raw", "marketCap", "averageDailyVolume3Month",
         "regularMarketPrice", "regularMarketChangePercent", "trailingPE",
         "forwardPE", "priceToBook", "returnOnEquity", "debtToEquity",
         "universe_score", "screening_penalty", "rejection_reason"
@@ -235,6 +271,7 @@ def build_market(name, cfg, rules):
         else:
             eligible.append(row)
     print(f"{name}: eligible {len(eligible)} / rejected {len(rejected)}")
+    eligible = normalize_rows(eligible)
     scored = score_rows(eligible, rules)
     selected, sectors, industries = select_diversified(scored, rules["target_count"][name], rules)
     selected_symbols = {r["symbol"] for r in selected}
@@ -245,7 +282,7 @@ def build_market(name, cfg, rules):
     return {
         "market": name,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
-        "source": "Yahoo Finance screener via yfinance; region + exchange filters",
+        "source": "Yahoo Finance screener via yfinance; normalized industry groups",
         "target_count": rules["target_count"][name],
         "discovered_count": len(discovered),
         "eligible_count": len(eligible),
