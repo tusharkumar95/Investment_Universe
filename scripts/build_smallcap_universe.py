@@ -10,8 +10,6 @@ import yfinance as yf
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(ROOT, "data")
 
-# Deliberately conservative small-cap bands: avoid the weakest microcaps while
-# leaving room for companies that can still compound dramatically.
 RULES = {
     "Canada": {"region": "ca", "exchanges": ["TOR", "VAN", "NEO", "CNQ"], "min_cap": 250_000_000, "max_cap": 2_000_000_000},
     "India": {"region": "in", "exchanges": ["NSI", "BSE"], "min_cap": 2_000_000_000, "max_cap": 20_000_000_000},
@@ -28,58 +26,18 @@ def num(v):
         return None
 
 
-def clean(v):
-    if isinstance(v, (np.integer, np.floating)):
-        return v.item()
-    try:
-        if pd.isna(v):
-            return None
-    except Exception:
-        pass
-    return v
-
-
-def discover(cfg):
-    query = yf.EquityQuery("and", [
-        yf.EquityQuery("eq", ["region", cfg["region"]]),
-        yf.EquityQuery("is-in", ["exchange", *cfg["exchanges"]]),
-        yf.EquityQuery("gte", ["intradaymarketcap", cfg["min_cap"]]),
-        yf.EquityQuery("lte", ["intradaymarketcap", cfg["max_cap"]]),
-    ])
-    rows = {}
-    offset = 0
-    while True:
-        result = yf.screen(query, offset=offset, size=250, sortField="intradaymarketcap", sortAsc=False)
-        quotes = result.get("quotes", []) if isinstance(result, dict) else []
-        if not quotes:
-            break
-        for q in quotes:
-            if q.get("symbol"):
-                rows[q["symbol"]] = q
-        if len(quotes) < 250:
-            break
-        offset += 250
-        if offset >= 5000:
-            break
-    return list(rows.values())
-
-
-def pct_growth(ticker, key):
-    return num(ticker.info.get(key))
-
-
 def score(info, hist):
-    revenue = pct_growth(info, "revenueGrowth")
-    earnings = pct_growth(info, "earningsGrowth")
-    roe = pct_growth(info, "returnOnEquity")
-    margin = pct_growth(info, "profitMargins")
+    revenue = num(info.get("revenueGrowth"))
+    earnings = num(info.get("earningsGrowth"))
+    roe = num(info.get("returnOnEquity"))
+    margin = num(info.get("profitMargins"))
     debt = num(info.get("debtToEquity"))
     pe = num(info.get("trailingPE"))
     forward_pe = num(info.get("forwardPE"))
     peg = num(info.get("pegRatio"))
     beta = num(info.get("beta"))
     momentum = 0.0
-    if hist is not None and len(hist) >= 126:
+    if hist is not None and not hist.empty:
         close = hist["Close"].dropna()
         if len(close) >= 126:
             momentum = num(close.iloc[-1] / close.iloc[-126] - 1) or 0.0
@@ -108,10 +66,35 @@ def technical_summary(hist):
     return {"historyDays": int(len(close)), "sma20": num(close.tail(20).mean()), "sma50": num(close.tail(50).mean()) if len(close)>=50 else None, "sma200": num(close.tail(200).mean()) if len(close)>=200 else None, "momentum3M": mom(63), "momentum6M": mom(126), "momentum1Y": mom(252), "high52Week": high, "low52Week": low, "drawdown52w": num(current/high-1) if current is not None and high else None}
 
 
+def discover(cfg):
+    query = yf.EquityQuery("and", [
+        yf.EquityQuery("eq", ["region", cfg["region"]]),
+        yf.EquityQuery("is-in", ["exchange", *cfg["exchanges"]]),
+        yf.EquityQuery("gte", ["intradaymarketcap", cfg["min_cap"]]),
+        yf.EquityQuery("lte", ["intradaymarketcap", cfg["max_cap"]]),
+    ])
+    rows = {}
+    offset = 0
+    while True:
+        result = yf.screen(query, offset=offset, size=250, sortField="intradaymarketcap", sortAsc=False)
+        quotes = result.get("quotes", []) if isinstance(result, dict) else []
+        if not quotes:
+            break
+        for q in quotes:
+            if q.get("symbol"):
+                rows[q["symbol"]] = q
+        if len(quotes) < 250:
+            break
+        offset += 250
+        if offset >= 5000:
+            break
+    return list(rows.values())
+
+
 def analyze(symbol, row):
-    t = yf.Ticker(symbol)
-    info = t.info or {}
-    hist = t.history(period="5y", auto_adjust=False)
+    ticker = yf.Ticker(symbol)
+    info = ticker.info or {}
+    hist = ticker.history(period="5y", auto_adjust=False)
     s = score(info, hist)
     current = num(info.get("currentPrice")) or num(info.get("regularMarketPrice"))
     if current is None and hist is not None and not hist.empty:
