@@ -9,64 +9,55 @@ on:
   schedule:
     - cron: "30 10 * * 1-5"
 
+concurrency:
+  group: investment-universe-main
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
 jobs:
   build-universe:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-
       - name: Syntax check
         run: python -m py_compile scripts/build_universe.py
-
       - name: Build universe
         run: python scripts/build_universe.py
-
-      - name: Validate outputs
+      - name: Validate outputs and diversification
         run: |
           python - <<'PY'
           import json
-
-          checks = [
-              ("Canada", "data/canada_universe.json", 100),
-              ("India", "data/india_universe.json", 100),
-          ]
-
-          for market, path, target in checks:
-              with open(path, encoding="utf-8") as f:
-                  data = json.load(f)
-              count = len(data.get("stocks", []))
-              discovered = data.get("discovered_count", 0)
-              eligible = data.get("eligible_count", 0)
-              print(f"{market}: discovered={discovered}, eligible={eligible}, selected={count}, target={target}")
-              if count < target:
-                  raise SystemExit(f"FAIL: {market} selected only {count} stocks; target is {target}")
-
-          with open("reports/universe_report.json", encoding="utf-8") as f:
-              report = json.load(f)
-          print("STATUS:", report.get("status"))
-          if report.get("status") != "PASS":
-              raise SystemExit("FAIL: universe report is not PASS")
+          checks=[("Canada","data/canada_universe.json",100),("India","data/india_universe.json",100)]
+          for market,path,target in checks:
+              data=json.load(open(path,encoding="utf-8")); stocks=data.get("stocks",[]); count=len(stocks)
+              print(f"{market}: discovered={data.get('discovered_count',0)}, eligible={data.get('eligible_count',0)}, selected={count}, target={target}")
+              if count<target: raise SystemExit(f"FAIL: {market} selected only {count} stocks")
+              industry_counts=data.get("industry_counts",{})
+              bad={k:v for k,v in industry_counts.items() if v>10}
+              if bad: raise SystemExit(f"FAIL: {market} industry cap exceeded: {bad}")
+              missing=[s.get('symbol') for s in stocks if not s.get('industry')]
+              if missing: raise SystemExit(f"FAIL: {market} has stocks without industry classification: {missing[:10]}")
+          report=json.load(open("reports/universe_report.json",encoding="utf-8"))
+          if report.get("status")!="PASS": raise SystemExit("FAIL: universe report is not PASS")
+          print("STATUS: PASS — 100 + 100 with max 10 per industry")
           PY
-
       - name: Commit generated universe
         run: |
           git config user.name "Investment Universe"
           git config user.email "actions@github.com"
           git add data/*.json reports/*.json
-          git diff --cached --quiet || git commit -m "Update investment universe"
+          git diff --cached --quiet || exit 0
+          git commit -m "Update diversified investment universe"
+          git pull --rebase origin main
           git push
