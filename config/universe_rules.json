@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "target_count": {"Canada": 100, "India": 100},
   "discovery": {
     "Canada": {"region": "ca", "exchanges": ["TOR", "VAN", "NEO", "CNQ"]},
@@ -24,8 +24,9 @@
   },
   "diversification": {
     "max_sector_share": 0.22,
-    "max_industry_share": 0.12,
-    "min_sectors": 8
+    "max_industry_count": 10,
+    "min_sectors": 8,
+    "require_industry": true
   },
   "quality": {
     "negative_pe_penalty": 8,
