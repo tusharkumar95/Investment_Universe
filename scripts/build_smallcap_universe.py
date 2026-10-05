@@ -15,6 +15,9 @@ RULES = {
     "India": {"region": "in", "exchanges": ["NSI", "BSE"], "min_cap": 2_000_000_000, "max_cap": 20_000_000_000},
 }
 TARGET = 10
+ANALYZE_LIMIT = 300
+MAX_PER_INDUSTRY = 3
+EXCLUDED_TYPES = ("split corp", "split share", "closed-end", "closed end", "investment trust", "acquisition corp", "capital pool")
 
 
 def num(v):
@@ -26,32 +29,60 @@ def num(v):
         return None
 
 
+def business_fit(info, row):
+    text = " ".join(str(x or "") for x in [
+        info.get("longName"), info.get("shortName"), info.get("industry"),
+        info.get("quoteType"), row.get("shortName"), row.get("industry")
+    ]).lower()
+    return not any(term in text for term in EXCLUDED_TYPES)
+
+
+def data_confidence(info):
+    fields = [
+        "revenueGrowth", "earningsGrowth", "returnOnEquity", "profitMargins",
+        "debtToEquity", "trailingPE", "forwardPE", "freeCashflow",
+        "operatingCashflow", "marketCap"
+    ]
+    present = sum(num(info.get(k)) is not None for k in fields)
+    return present / len(fields)
+
+
 def score(info, hist):
-    revenue = num(info.get("revenueGrowth"))
-    earnings = num(info.get("earningsGrowth"))
-    roe = num(info.get("returnOnEquity"))
-    margin = num(info.get("profitMargins"))
-    debt = num(info.get("debtToEquity"))
-    pe = num(info.get("trailingPE"))
-    forward_pe = num(info.get("forwardPE"))
-    peg = num(info.get("pegRatio"))
-    beta = num(info.get("beta"))
+    revenue, earnings = num(info.get("revenueGrowth")), num(info.get("earningsGrowth"))
+    roe, margin, debt = num(info.get("returnOnEquity")), num(info.get("profitMargins")), num(info.get("debtToEquity"))
+    pe, forward_pe, peg, beta = num(info.get("trailingPE")), num(info.get("forwardPE")), num(info.get("pegRatio")), num(info.get("beta"))
+    fcf, ocf, confidence = num(info.get("freeCashflow")), num(info.get("operatingCashflow")), data_confidence(info)
     momentum = 0.0
     if hist is not None and not hist.empty:
         close = hist["Close"].dropna()
         if len(close) >= 126:
             momentum = num(close.iloc[-1] / close.iloc[-126] - 1) or 0.0
-    growth_score = np.mean([max(0, min(1, (revenue or 0) / 0.30)), max(0, min(1, (earnings or 0) / 0.40))])
-    quality_score = np.mean([max(0, min(1, ((roe or 0) + 0.05) / 0.30)), max(0, min(1, (margin or 0) / 0.25)), max(0, min(1, 1 - (debt or 0) / 250))])
+    growth_vals = [max(0, min(1, x)) for x in [((revenue or 0)+0.05)/0.35, ((earnings or 0)+0.05)/0.45]]
+    growth_score = float(np.mean(growth_vals))
+    quality_parts = [
+        max(0, min(1, ((roe or 0)+0.05)/0.30)),
+        max(0, min(1, ((margin or 0)+0.05)/0.30)),
+        max(0, min(1, 1-(debt or 0)/250))
+    ]
+    if fcf is not None: quality_parts.append(1.0 if fcf > 0 else 0.0)
+    if ocf is not None: quality_parts.append(1.0 if ocf > 0 else 0.0)
+    quality_score = float(np.mean(quality_parts))
     vals = []
-    if pe and pe > 0: vals.append(max(0, min(1, 1 - pe / 60)))
-    if forward_pe and forward_pe > 0: vals.append(max(0, min(1, 1 - forward_pe / 50)))
-    if peg and peg > 0: vals.append(max(0, min(1, 1 - peg / 3)))
-    valuation_score = float(np.mean(vals)) if vals else 0.5
-    momentum_score = max(0, min(1, (momentum + 0.30) / 0.90))
-    risk_penalty = (0.12 if debt and debt > 250 else 0) + (0.08 if beta and beta > 2.2 else 0) + (0.08 if pe and pe > 100 else 0)
-    total = 0.35*growth_score + 0.25*quality_score + 0.15*valuation_score + 0.15*momentum_score + 0.10*0.75 - risk_penalty
-    return round(max(0, min(100, total * 100)), 2)
+    if pe and pe > 0: vals.append(max(0, min(1, 1-pe/60)))
+    if forward_pe and forward_pe > 0: vals.append(max(0, min(1, 1-forward_pe/50)))
+    if peg and peg > 0: vals.append(max(0, min(1, 1-peg/3)))
+    valuation_score = float(np.mean(vals)) if vals else 0.30
+    momentum_score = max(0, min(1, (momentum+0.30)/0.90))
+    risk_penalty = 0
+    if debt is not None and debt > 250: risk_penalty += 0.12
+    if beta is not None and beta > 2.2: risk_penalty += 0.08
+    if pe is not None and pe > 100: risk_penalty += 0.08
+    if fcf is not None and fcf < 0: risk_penalty += 0.07
+    if ocf is not None and ocf < 0: risk_penalty += 0.08
+    total = 0.30*growth_score + 0.30*quality_score + 0.15*valuation_score + 0.10*momentum_score + 0.15*confidence - risk_penalty
+    result = max(0, min(100, total*100))
+    if confidence < 0.50: result = min(result, 64)
+    return round(result, 2), round(confidence*100, 1)
 
 
 def technical_summary(hist):
@@ -95,7 +126,9 @@ def analyze(symbol, row):
     ticker = yf.Ticker(symbol)
     info = ticker.info or {}
     hist = ticker.history(period="5y", auto_adjust=False)
-    s = score(info, hist)
+    if not business_fit(info, row):
+        return None
+    s, confidence = score(info, hist)
     current = num(info.get("currentPrice")) or num(info.get("regularMarketPrice"))
     if current is None and hist is not None and not hist.empty:
         current = num(hist["Close"].dropna().iloc[-1])
@@ -110,9 +143,9 @@ def analyze(symbol, row):
         "roe": num(info.get("returnOnEquity")), "roic": num(info.get("returnOnCapital")), "debtToEquity": num(info.get("debtToEquity")),
         "pe": num(info.get("trailingPE")), "forwardPE": num(info.get("forwardPE")), "peg": num(info.get("pegRatio")), "priceToSales": num(info.get("priceToSalesTrailing12Months")), "priceToBook": num(info.get("priceToBook")), "evToEbitda": num(info.get("enterpriseToEbitda")),
         "freeCashFlow": num(info.get("freeCashflow")), "operatingCashFlow": num(info.get("operatingCashflow")), "insiderOwnership": num(info.get("heldPercentInsiders")), "institutionalOwnership": num(info.get("heldPercentInstitutions")), "dividendYield": num(info.get("dividendYield")), "beta": num(info.get("beta")),
-        "universeScore": s,
-        "thesis": "High-upside small-cap candidate: growth is weighted most heavily, while business quality, valuation, balance-sheet risk and market confirmation prevent the list from becoming a pure lottery-ticket screen.",
-        "screening": {"growth": "Revenue/earnings growth weighted heavily", "quality": "ROE, margin and leverage considered", "valuation": "P/E, forward P/E and PEG where available", "momentum": "3M/6M/1Y price confirmation", "risk": "Debt, beta and extreme valuation penalties"},
+        "universeScore": s, "dataConfidence": confidence, "businessFit": "Operating company",
+        "thesis": "Small-cap operating-company candidate screened for growth, quality, valuation, cash-flow health, leverage, data confidence and market confirmation.",
+        "screening": {"growth": "Revenue and earnings growth", "quality": "ROE, margin, cash flow and leverage", "valuation": "P/E, forward P/E and PEG where available", "momentum": "6M market confirmation", "confidence": "10-field fundamental coverage", "risk": "Debt, beta, negative cash flow and extreme valuation penalties"},
         "technical": technical_summary(hist)
     }
 
@@ -125,12 +158,22 @@ def main():
         candidates = discover(cfg)
         print(f"  candidates: {len(candidates)}")
         analyzed = []
-        for row in candidates[:150]:
-            try: analyzed.append(analyze(row["symbol"], row))
+        for row in candidates[:ANALYZE_LIMIT]:
+            try:
+                result = analyze(row["symbol"], row)
+                if result: analyzed.append(result)
             except Exception as exc: print(f"  skip {row.get('symbol')}: {exc}")
         analyzed.sort(key=lambda x: x.get("universeScore", 0), reverse=True)
-        selected = analyzed[:TARGET]
-        output["markets"][market] = {"target": TARGET, "selected_count": len(selected), "stocks": selected, "candidate_count": len(candidates)}
+        selected, industry_counts = [], {}
+        for stock in analyzed:
+            industry = stock.get("industry") or "Unknown"
+            if industry_counts.get(industry, 0) >= MAX_PER_INDUSTRY:
+                continue
+            selected.append(stock)
+            industry_counts[industry] = industry_counts.get(industry, 0) + 1
+            if len(selected) >= TARGET:
+                break
+        output["markets"][market] = {"target": TARGET, "selected_count": len(selected), "stocks": selected, "candidate_count": len(candidates), "analyzed_count": len(analyzed), "max_per_industry": MAX_PER_INDUSTRY}
         if len(selected) < TARGET: raise RuntimeError(f"{market}: only {len(selected)} usable small-cap candidates")
     with open(os.path.join(DATA_DIR, "smallcap_universe.json"), "w", encoding="utf-8") as f: json.dump(output, f, indent=2, ensure_ascii=False)
     print(json.dumps({m: output["markets"][m]["selected_count"] for m in output["markets"]}, indent=2))
