@@ -2,6 +2,8 @@ name: Update Small Cap Universe
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "0 11 * * 1-5"
   push:
     paths:
       - "scripts/build_smallcap_universe.py"
@@ -42,7 +44,16 @@ jobs:
           d=json.load(open('data/smallcap_universe.json'))
           assert d['markets']['Canada']['selected_count'] == 10
           assert d['markets']['India']['selected_count'] == 10
-          print('Small-cap validation PASS: 10 Canada + 10 India')
+          for market in ['Canada','India']:
+              stocks=d['markets'][market]['stocks']
+              assert all(s.get('businessFit') == 'Operating company' for s in stocks)
+              assert all(s.get('dataConfidence') is not None for s in stocks)
+              counts={}
+              for s in stocks:
+                  industry=s.get('industry') or 'Unknown'
+                  counts[industry]=counts.get(industry,0)+1
+              assert max(counts.values()) <= 3
+          print('Small-cap v3 validation PASS: 10 + 10, operating companies, confidence scored, industry cap <= 3')
           PY
 
       - name: Commit data
