@@ -49,10 +49,13 @@ jobs:
               assert all(s.get('businessFit') == 'Operating company' for s in stocks)
               assert all(s.get('dataConfidence') is not None for s in stocks)
               counts={}
+              company_keys=[]
               for s in stocks:
                   industry=s.get('industry') or 'Unknown'
                   counts[industry]=counts.get(industry,0)+1
+                  company_keys.append((s.get('ticker') or '').upper().removesuffix('.NS').removesuffix('.BO'))
               assert max(counts.values()) <= 3
+              assert len(company_keys) == len(set(company_keys)), f"{market}: duplicate company listings selected"
           print('Small-cap v3 validation PASS: 10 + 10, operating companies, confidence scored, industry cap <= 3')
           PY
 
