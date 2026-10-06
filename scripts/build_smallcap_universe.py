@@ -164,12 +164,16 @@ def main():
                 if result: analyzed.append(result)
             except Exception as exc: print(f"  skip {row.get('symbol')}: {exc}")
         analyzed.sort(key=lambda x: x.get("universeScore", 0), reverse=True)
-        selected, industry_counts = [], {}
+        selected, industry_counts, company_keys = [], {}, set()
         for stock in analyzed:
             industry = stock.get("industry") or "Unknown"
+            company_key = str(stock.get("ticker") or "").upper().removesuffix(".NS").removesuffix(".BO")
+            if company_key in company_keys:
+                continue
             if industry_counts.get(industry, 0) >= MAX_PER_INDUSTRY:
                 continue
             selected.append(stock)
+            company_keys.add(company_key)
             industry_counts[industry] = industry_counts.get(industry, 0) + 1
             if len(selected) >= TARGET:
                 break
