@@ -1,0 +1,6 @@
+{
+  "checked_at_utc": "2026-10-10T21:00:14.696274+00:00",
+  "status": "FALLBACK_PREVIOUS_UNIVERSE",
+  "build_outcome": "failure",
+  "message": "Fresh universe was incomplete or failed. Previous validated 100-stock universe files were retained where needed. Diversification rules were not relaxed."
+}
