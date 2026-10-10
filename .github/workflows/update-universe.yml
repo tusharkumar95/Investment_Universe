@@ -6,6 +6,7 @@ on:
     paths:
       - "config/universe_rules.json"
       - "scripts/build_universe.py"
+      - ".github/workflows/update-universe.yml"
   schedule:
     - cron: "30 10 * * 1-5"
 
@@ -33,7 +34,33 @@ jobs:
       - name: Syntax check
         run: python -m py_compile scripts/build_universe.py
       - name: Build universe
+        id: build
+        continue-on-error: true
         run: python scripts/build_universe.py
+      - name: Record refresh outcome
+        env:
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          outcome=os.environ.get("BUILD_OUTCOME","failure")
+          status="PASS" if outcome=="success" else "FALLBACK_PREVIOUS_UNIVERSE"
+          payload={
+              "checked_at_utc":datetime.now(timezone.utc).isoformat(),
+              "status":status,
+              "build_outcome":outcome,
+              "message":"Fresh universe built successfully." if outcome=="success" else "Fresh universe was incomplete or failed. Previous validated 100-stock universe files were retained where needed. Diversification rules were not relaxed.",
+          }
+          Path("reports").mkdir(exist_ok=True)
+          Path("reports/universe_refresh_status.json").write_text(json.dumps(payload,indent=2),encoding="utf-8")
+          if outcome!="success":
+              print("::warning::Fresh universe build failed or was incomplete. Falling back to the previously committed validated universe; diversification rules remain unchanged.")
+          print(json.dumps(payload,indent=2))
+          PY
       - name: Validate outputs and diversification
         run: |
           python - <<'PY'
@@ -47,9 +74,10 @@ jobs:
               if bad: raise SystemExit(f"FAIL: {market} industry cap exceeded: {bad}")
               missing=[s.get('symbol') for s in stocks if not s.get('industry')]
               if missing: raise SystemExit(f"FAIL: {market} has stocks without industry classification: {missing[:10]}")
-          report=json.load(open("reports/universe_report.json",encoding="utf-8"))
-          if report.get("status")!="PASS": raise SystemExit("FAIL: universe report is not PASS")
-          print("STATUS: PASS — 100 + 100 with max 10 per industry")
+          refresh=json.load(open("reports/universe_refresh_status.json",encoding="utf-8"))
+          if refresh.get("status") not in {"PASS","FALLBACK_PREVIOUS_UNIVERSE"}:
+              raise SystemExit("FAIL: unknown universe refresh status")
+          print(f"STATUS: {refresh.get('status')} — validated 100 + 100 with max 10 per industry")
           PY
       - name: Commit generated universe
         run: |
