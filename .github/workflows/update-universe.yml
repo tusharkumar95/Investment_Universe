@@ -23,20 +23,25 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
       - name: Syntax check
         run: python -m py_compile scripts/build_universe.py
-      - name: Build universe
+
+      - name: Build fresh dynamic universe
         id: build
         continue-on-error: true
         run: python scripts/build_universe.py
+
       - name: Record refresh outcome
         env:
           BUILD_OUTCOME: ${{ steps.build.outcome }}
@@ -53,32 +58,62 @@ jobs:
               "checked_at_utc":datetime.now(timezone.utc).isoformat(),
               "status":status,
               "build_outcome":outcome,
-              "message":"Fresh universe built successfully." if outcome=="success" else "Fresh universe was incomplete or failed. Previous validated 100-stock universe files were retained where needed. Diversification rules were not relaxed.",
+              "message":(
+                  "Fresh universe built successfully using the 50-100 dynamic range."
+                  if outcome=="success"
+                  else "Fresh universe could not produce at least 50 valid diversified stocks. Previous validated universe retained where needed."
+              ),
           }
           Path("reports").mkdir(exist_ok=True)
           Path("reports/universe_refresh_status.json").write_text(json.dumps(payload,indent=2),encoding="utf-8")
           if outcome!="success":
-              print("::warning::Fresh universe build failed or was incomplete. Falling back to the previously committed validated universe; diversification rules remain unchanged.")
+              print("::warning::Fresh universe fell below the 50-stock safety floor. Keeping the previous validated universe where needed.")
           print(json.dumps(payload,indent=2))
           PY
+
       - name: Validate outputs and diversification
         run: |
           python - <<'PY'
           import json
-          checks=[("Canada","data/canada_universe.json",100),("India","data/india_universe.json",100)]
-          for market,path,target in checks:
-              data=json.load(open(path,encoding="utf-8")); stocks=data.get("stocks",[]); count=len(stocks)
-              print(f"{market}: discovered={data.get('discovered_count',0)}, eligible={data.get('eligible_count',0)}, selected={count}, target={target}")
-              if count<target: raise SystemExit(f"FAIL: {market} selected only {count} stocks")
-              bad={k:v for k,v in data.get("industry_counts",{}).items() if v>10}
-              if bad: raise SystemExit(f"FAIL: {market} industry cap exceeded: {bad}")
-              missing=[s.get('symbol') for s in stocks if not s.get('industry')]
-              if missing: raise SystemExit(f"FAIL: {market} has stocks without industry classification: {missing[:10]}")
+          import math
+
+          rules=json.load(open("config/universe_rules.json",encoding="utf-8"))
+          share=float(rules["diversification"]["max_sector_share"])
+          max_industry=int(rules["diversification"].get("max_industry_count",10))
+          checks=[("Canada","data/canada_universe.json"),("India","data/india_universe.json")]
+
+          for market,path in checks:
+              data=json.load(open(path,encoding="utf-8"))
+              stocks=data.get("stocks",[])
+              count=len(stocks)
+              minimum=int(rules["min_count"][market])
+              target=int(rules["target_count"][market])
+              print(f"{market}: discovered={data.get('discovered_count',0)}, eligible={data.get('eligible_count',0)}, selected={count}, allowed={minimum}-{target}")
+
+              if not minimum <= count <= target:
+                  raise SystemExit(f"FAIL: {market} selected {count}; allowed range is {minimum}-{target}")
+              if data.get("selected_count") not in (None,count):
+                  raise SystemExit(f"FAIL: {market} selected_count metadata does not match stocks array")
+
+              bad_industry={k:v for k,v in data.get("industry_counts",{}).items() if v>max_industry}
+              if bad_industry:
+                  raise SystemExit(f"FAIL: {market} industry cap exceeded: {bad_industry}")
+
+              sector_cap=max(1,math.floor(count*share))
+              bad_sector={k:v for k,v in data.get("sector_counts",{}).items() if k!="Unknown" and v>sector_cap}
+              if bad_sector:
+                  raise SystemExit(f"FAIL: {market} proportional sector cap {sector_cap} exceeded: {bad_sector}")
+
+              missing=[s.get("symbol") for s in stocks if not s.get("industry")]
+              if missing:
+                  raise SystemExit(f"FAIL: {market} has stocks without industry classification: {missing[:10]}")
+
           refresh=json.load(open("reports/universe_refresh_status.json",encoding="utf-8"))
           if refresh.get("status") not in {"PASS","FALLBACK_PREVIOUS_UNIVERSE"}:
               raise SystemExit("FAIL: unknown universe refresh status")
-          print(f"STATUS: {refresh.get('status')} — validated 100 + 100 with max 10 per industry")
+          print(f"STATUS: {refresh.get('status')} — validated dynamic 50-100 stock universes")
           PY
+
       - name: Commit generated universe
         run: |
           git config user.name "Investment Universe"
