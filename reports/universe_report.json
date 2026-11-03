@@ -1,18 +1,18 @@
 {
-  "generated_at_utc": "2026-11-02T20:25:49.964625+00:00",
+  "generated_at_utc": "2026-11-03T17:56:11.320078+00:00",
   "config_version": 4,
   "markets": {
     "Canada": {
-      "discovered": 3249,
-      "eligible": 579,
+      "discovered": 3248,
+      "eligible": 589,
       "selected": 100,
       "minimum": 50,
       "target": 100,
       "selection_status": "TARGET"
     },
     "India": {
-      "discovered": 8608,
-      "eligible": 4347,
+      "discovered": 8604,
+      "eligible": 4355,
       "selected": 100,
       "minimum": 50,
       "target": 100,
